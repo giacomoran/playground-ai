@@ -12,3 +12,4 @@ wheels/
 # Others
 wandb/
 data/
+out/
