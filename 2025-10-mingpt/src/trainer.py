@@ -8,7 +8,6 @@ from collections import defaultdict
 
 import torch
 from torch.utils.data.dataloader import DataLoader
-from mingpt.utils import CfgNode
 from yacs.config import CfgNode as CN
 
 

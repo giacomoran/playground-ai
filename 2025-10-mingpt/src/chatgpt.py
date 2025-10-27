@@ -11,7 +11,7 @@ from torch.utils.data.dataloader import DataLoader
 
 # TODO:
 # from model import GPT
-# from trainer import Trainer
+from trainer import Trainer
 from utils import set_seed, setup_logging, merge_from_args
 
 from yacs.config import CfgNode as CN
@@ -37,11 +37,11 @@ def get_config():
     # C.model = GPT.get_default_config()
     # C.model.model_type = "gpt-mini"
 
-    # # trainer
-    # C.trainer = Trainer.get_default_config()
-    # C.trainer.learning_rate = (
-    #     5e-4  # the model we're using is so small that we can go a bit faster
-    # )
+    # trainer
+    C.trainer = Trainer.get_default_config()
+    C.trainer.learning_rate = (
+        5e-4  # the model we're using is so small that we can go a bit faster
+    )
 
     return C.clone()
 
