@@ -36,8 +36,10 @@ class GPT(nn.Module):
         num_layers = self.config.num_layers
 
         self.embedding = nn.Embedding(vocab_size, d_model)
+        torch.nn.init.normal_(self.embedding.weight, mean=0.0, std=0.02)
 
         self.embedding_position = nn.Embedding(block_size, d_model)
+        torch.nn.init.normal_(self.embedding_position.weight, mean=0.0, std=0.02)
         self.register_buffer("position_ids", torch.arange(block_size))
 
         self.layers = nn.Sequential(*[GPT_Layer(config) for _ in range(num_layers)])
@@ -82,8 +84,26 @@ class GPT(nn.Module):
         return optimizer
 
     def generate(self, x, n, temperature, do_sample, top_k):
-        # TODO:
-        pass
+        # x is a batch_size x block_size tensor of token indices
+
+        for _ in range(n):
+            logits, _ = self.forward(x)  # batch_size, block_size, vocab_size
+            logits = logits[:, -1]  # batch_size, vocab_size
+
+            if top_k:
+                v, _ = torch.topk(logits, k=top_k)  # batch_size, k
+                logits[logits < v[:, [-1]]] = float("-inf")
+
+            probs = self.softmax(logits / temperature)
+
+            if do_sample:
+                token = torch.multinomial(probs, num_samples=1)  # batch_size, 1
+            else:
+                token = torch.argmax(probs, dim=-1, keepdim=True)  # batch_size, 1
+
+            x = torch.cat([x[:, 1:], token], dim=1)
+
+        return x
 
 
 class GPT_Layer(nn.Module):
@@ -125,7 +145,7 @@ class GPT_Attention(nn.Module):
             [GPT_Attention_Head(config) for _ in range(heads_size)]
         )
 
-        self.W_o = nn.Parameter(torch.randn(heads_size * self.d_k, d_model))
+        self.W_o = nn.Parameter(torch.randn(heads_size * self.d_k, d_model) * 0.02)
 
     def forward(self, x):
         # x is a batch_size x block_size x d_model tensor
@@ -145,9 +165,9 @@ class GPT_Attention_Head(nn.Module):
 
         self.d_k = d_model // heads_size
 
-        self.W_q = nn.Parameter(torch.randn(d_model, self.d_k))
-        self.W_k = nn.Parameter(torch.randn(d_model, self.d_k))
-        self.W_v = nn.Parameter(torch.randn(d_model, self.d_k))
+        self.W_q = nn.Parameter(torch.randn(d_model, self.d_k) * 0.02)
+        self.W_k = nn.Parameter(torch.randn(d_model, self.d_k) * 0.02)
+        self.W_v = nn.Parameter(torch.randn(d_model, self.d_k) * 0.02)
 
         self.register_buffer(
             "mask",
@@ -179,14 +199,17 @@ class GPT_MLP(nn.Module):
         d_model = config.d_model
         hidden_size = config.MLP.hidden_size
 
-        layers = []
-        layers.append(nn.Linear(d_model, hidden_size))
-        layers.append(nn.GELU())
-        layers.append(nn.Linear(hidden_size, d_model))
+        self.fc1 = nn.Linear(d_model, hidden_size)
+        torch.nn.init.normal_(self.fc1.weight, mean=0.0, std=0.02)
+        torch.nn.init.zeros_(self.fc1.bias)
 
-        self.net = nn.Sequential(*layers)
+        self.gelu = nn.GELU()
+
+        self.fc2 = nn.Linear(hidden_size, d_model)
+        torch.nn.init.normal_(self.fc2.weight, mean=0.0, std=0.02)
+        torch.nn.init.zeros_(self.fc2.bias)
 
     def forward(self, x):
         # x is a batch_size x block_size x d_model tensor
 
-        return self.net(x)
+        return self.fc2(self.gelu(self.fc1(x)))
