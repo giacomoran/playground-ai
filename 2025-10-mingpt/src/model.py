@@ -48,21 +48,24 @@ class GPT(nn.Module):
         self.crossentropy = nn.CrossEntropyLoss()
 
     def forward(self, x, y=None):
-        # x is a batch_size x block_size tensor of token indices
-        # y is a batch_size x block_size tensor, the rows are one-off chars from x
+        # x is a batch_size x seq_len tensor of token indices
+        # y is a batch_size x seq_len tensor, the rows are one-off chars from x
 
-        batch_size, block_size = x.shape
+        batch_size, seq_len = x.shape
         d_model = self.config.d_model
+
+        # Ensure sequence length doesn't exceed block_size
+        assert (
+            seq_len <= self.config.block_size
+        ), f"Sequence length {seq_len} exceeds block_size {self.config.block_size}"
 
         token_embeddings = self.embedding(x) * (
             d_model**0.5
-        )  # (batch_size, block_size, d_model)
+        )  # (batch_size, seq_len, d_model)
         pos_embeddings = self.embedding_position(
-            self.position_ids
-        )  # (block_size, d_model)
-        embeddings = (
-            token_embeddings + pos_embeddings
-        )  # (batch_size, block_size, d_model)
+            self.position_ids[:seq_len]
+        )  # (seq_len, d_model)
+        embeddings = token_embeddings + pos_embeddings  # (batch_size, seq_len, d_model)
 
         hidden = self.layers(embeddings)
 
@@ -84,10 +87,17 @@ class GPT(nn.Module):
         return optimizer
 
     def generate(self, x, n, temperature, do_sample, top_k):
-        # x is a batch_size x block_size tensor of token indices
+        # x is a batch_size x seq_len tensor of token indices
 
         for _ in range(n):
-            logits, _ = self.forward(x)  # batch_size, block_size, vocab_size
+            # Truncate context if it exceeds block_size (sliding window)
+            x_cond = (
+                x
+                if x.size(1) <= self.config.block_size
+                else x[:, -self.config.block_size :]
+            )
+
+            logits, _ = self.forward(x_cond)  # batch_size, seq_len, vocab_size
             logits = logits[:, -1]  # batch_size, vocab_size
 
             if top_k:
@@ -101,7 +111,7 @@ class GPT(nn.Module):
             else:
                 token = torch.argmax(probs, dim=-1, keepdim=True)  # batch_size, 1
 
-            x = torch.cat([x[:, 1:], token], dim=1)
+            x = torch.cat([x, token], dim=1)
 
         return x
 
@@ -121,7 +131,7 @@ class GPT_Layer(nn.Module):
         self.mlp = GPT_MLP(config)
 
     def forward(self, x):
-        # x is a batch_size x block_size x d_model tensor
+        # x is a batch_size x seq_len x d_model tensor
 
         block_attention = x + self.attention(self.ln_1(x))
         block_mlp = block_attention + self.mlp(self.ln_2(block_attention))
@@ -148,7 +158,7 @@ class GPT_Attention(nn.Module):
         self.W_o = nn.Parameter(torch.randn(heads_size * self.d_k, d_model) * 0.02)
 
     def forward(self, x):
-        # x is a batch_size x block_size x d_model tensor
+        # x is a batch_size x seq_len x d_model tensor
 
         return torch.cat([head(x) for head in self.heads], dim=-1) @ self.W_o
 
@@ -177,16 +187,21 @@ class GPT_Attention_Head(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x):
-        # x is a batch_size x block_size x d_model tensor
+        # x is a batch_size x seq_len x d_model tensor
+
+        batch_size, seq_len, d_model = x.shape
 
         Q = x @ self.W_q
         K = x @ self.W_k
         V = x @ self.W_v
 
         scores = Q @ K.transpose(-2, -1) / (self.d_k**0.5)
-        A = self.softmax(scores + self.mask)  # batch_size x block_size x block_size
+        # Use only the relevant portion of the mask for current sequence length
+        A = self.softmax(
+            scores + self.mask[:seq_len, :seq_len]
+        )  # batch_size x seq_len x seq_len
 
-        return A @ V  # batch_size x block_size x d_k
+        return A @ V  # batch_size x seq_len x d_k
 
 
 class GPT_MLP(nn.Module):
@@ -210,6 +225,6 @@ class GPT_MLP(nn.Module):
         torch.nn.init.zeros_(self.fc2.bias)
 
     def forward(self, x):
-        # x is a batch_size x block_size x d_model tensor
+        # x is a batch_size x seq_len x d_model tensor
 
         return self.fc2(self.gelu(self.fc1(x)))

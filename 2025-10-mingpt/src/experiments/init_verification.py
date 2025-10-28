@@ -1,11 +1,18 @@
+"""
+Verify that model initialization produces expected loss values.
+"""
+
 import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import math
 import torch
-from torch.utils.data import Dataset
 
 from model import GPT
 from chatgpt import CharDataset, get_config
-from trainer import Trainer
 from utils import set_seed
 
 
@@ -68,6 +75,4 @@ def verify_init_loss():
 
 
 if __name__ == "__main__":
-
-    # Verify initialization
-    model, train_dataset, config = verify_init_loss()
+    verify_init_loss()
