@@ -10,7 +10,6 @@
 - NT-Xent loss.
 - Batch size N from 256 to 8192. By default batch size 4096 and train for 100 epochs.
 - LARS optimizer for all batch sizes (since learning might be unstable with SGD). Learning rate of 4.8 (= 0.3 × BatchSize/256) and weight decay of 10−6. Linear warmup for the first 10 epochs, and decay the learning rate with the cosine decay schedule without restarts.
-- They use global batch norm in DDP. In contrastive learning, the affine transformation in the batch norm layer can learn to scale the dimensions along which the two positive samples are correlated, but at test time (or in other batches) you get different batch statistics. This can be ameliorated by using larger effective batches.
 - They train on the original ImageNet (1.2M training images).
 - They use global batch norm: in small batches, positive pairs influence the batch statistics (by e.g. pulling the batch mean towards their regions), this might lower the loss without the network learning invariance.
 
@@ -25,3 +24,8 @@ On CIFAR-10 they make the following modifications:
 
 - In ResNet-50, they replace the first 7x7 Conv of stride 2 with 3x3 Conv of stride 1, and also remove the first max pooling operation
 - Remove Gaussian Blur from the data augmentations, use 0.5 as color distortion strenght
+
+Note that on an M2 Max MacBook Pro:
+
+- I cannot fit batch size 2048, I get out of memory errors.
+- I cannot use torchlars which requires CUDA.

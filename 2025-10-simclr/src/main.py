@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 #: Utils
 
@@ -211,15 +212,31 @@ if __name__ == "__main__":
 
     print("Running...")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=1e-3,  # Increased learning rate
+        weight_decay=1e-6,
+    )
 
     # Plot augmented pairs of images for the batch
     # print(" ".join(f"{classes[labels[j]]:5s}" for j in range(batch_size)))
     # grid = torch.cat([x1, x2], dim=0)
     # imshow(torchvision.utils.make_grid(grid, nrow=batch_size))
 
-    for epoch in range(1):
-        for ix, batch in enumerate(trainloader):
+    # Store 2 batches for overfitting
+    print("Extracting 2 batches for overfitting...")
+    overfit_batches = []
+    for ix, batch in enumerate(trainloader):
+        if ix >= 2:
+            break
+        overfit_batches.append(batch)
+
+    print(f"Overfitting on {len(overfit_batches)} batches")
+
+    for epoch in range(100):
+        for ix, batch in enumerate(overfit_batches):
+            batch_start_time = time.time()
+
             x1, x2, labels = batch
 
             optimizer.zero_grad()
@@ -230,8 +247,9 @@ if __name__ == "__main__":
 
             optimizer.step()
 
+            batch_time = time.time() - batch_start_time
             print(
-                f"Epoch={epoch} Microbatch={ix}/{len(trainloader)} Loss={loss.item()}"
+                f"Epoch={epoch} Batch={ix}/{len(overfit_batches)} Loss={loss.item():.4f} Time={batch_time:.3f}s"
             )
 
     print("END")
