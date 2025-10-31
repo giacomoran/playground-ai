@@ -68,35 +68,12 @@ class NTXentLoss(nn.Module):
         return loss
 
 
-def replace_batchnorm_with_groupnorm(module, num_groups=32):
-    """
-    Recursively replace all BatchNorm layers with GroupNorm.
-    GroupNorm doesn't depend on batch statistics, making it suitable for
-    contrastive learning with small batches or gradient accumulation.
-    """
-    for name, child in module.named_children():
-        if isinstance(child, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-            # Get number of channels
-            num_channels = child.num_features
-            # Replace with GroupNorm (use min to handle layers with few channels)
-            setattr(
-                module,
-                name,
-                nn.GroupNorm(
-                    num_groups=min(num_groups, num_channels), num_channels=num_channels
-                ),
-            )
-        else:
-            replace_batchnorm_with_groupnorm(child, num_groups)
-    return module
-
-
 class SimCLR(nn.Module):
     def __init__(self, batch_size, temperature=0.5, device="cuda"):
         super().__init__()
 
         self.batch_size = batch_size
-        self.temperature = 0.5
+        self.temperature = temperature
         self.device = device
 
         # ResNet with modification for smaller images (CIFAR-10)
@@ -104,7 +81,6 @@ class SimCLR(nn.Module):
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         resnet.maxpool = nn.Identity()
         resnet.fc = nn.Identity()
-        resnet = replace_batchnorm_with_groupnorm(resnet, num_groups=32)
 
         self.base_encoder = resnet
 
@@ -143,7 +119,7 @@ class SimCLRTrainDataset(torch.utils.data.Dataset):
         self.transform = transforms.Compose(
             [
                 transforms.RandomResizedCrop(
-                    (H, W), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333)
+                    (32, 32), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333)
                 ),
                 transforms.RandomHorizontalFlip(p=0.5),
                 get_random_color_distortion(0.5),
@@ -190,10 +166,7 @@ if __name__ == "__main__":
 
     print("START")
 
-    microbatch_size = 64
-    batch_size = 2048
-    accumulation_steps = batch_size // microbatch_size
-    assert batch_size % microbatch_size == 0
+    batch_size = 512
 
     C = 3
     H = 32
@@ -221,33 +194,44 @@ if __name__ == "__main__":
 
     trainset = SimCLRTrainDataset()
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=microbatch_size, shuffle=True, num_workers=8
+        trainset, batch_size=batch_size, shuffle=True, num_workers=8
     )
 
     testset = SimCLRTestDataset()
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=microbatch_size, shuffle=False, num_workers=8
+        testset, batch_size=batch_size, shuffle=False, num_workers=8
     )
 
     dataiter = iter(trainloader)
 
     print("Creating model")
 
-    model = SimCLR(batch_size=microbatch_size, temperature=0.5, device=device)
+    model = SimCLR(batch_size=batch_size, temperature=0.5, device=device)
     model = model.to(device)
 
     print("Running...")
 
-    for i in range(3):
-        x1, x2, labels = next(dataiter)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
-        # Plot augmented pairs of images for the batch
-        # print(" ".join(f"{classes[labels[j]]:5s}" for j in range(batch_size)))
-        # grid = torch.cat([x1, x2], dim=0)
-        # imshow(torchvision.utils.make_grid(grid, nrow=batch_size))
+    # Plot augmented pairs of images for the batch
+    # print(" ".join(f"{classes[labels[j]]:5s}" for j in range(batch_size)))
+    # grid = torch.cat([x1, x2], dim=0)
+    # imshow(torchvision.utils.make_grid(grid, nrow=batch_size))
 
-        x1, x2 = x1.to(device), x2.to(device)
-        loss = model(x1, x2)
-        print(f"Loss: {loss}")
+    for epoch in range(1):
+        for ix, batch in enumerate(trainloader):
+            x1, x2, labels = batch
+
+            optimizer.zero_grad()
+
+            x1, x2 = x1.to(device), x2.to(device)
+            loss = model(x1, x2)
+            loss.backward()
+
+            optimizer.step()
+
+            print(
+                f"Epoch={epoch} Microbatch={ix}/{len(trainloader)} Loss={loss.item()}"
+            )
 
     print("END")
