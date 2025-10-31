@@ -1,6 +1,7 @@
 import torch
 import torchvision
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 import matplotlib.pyplot as plt
@@ -47,15 +48,81 @@ def imshow(img):
 #: Model
 
 
-class SimCLR(nn.Module):
-    def __init__(self):
+# REFS: https://gist.github.com/ShairozS/a945c43bb81457b94e6c16cefbc0a858
+class NTXentLoss(nn.Module):
+    def __init__(self, batch_size, temperature=0.5, device="cuda"):
         super().__init__()
+        self.batch_size = batch_size
+        self.register_buffer("temperature", torch.tensor(temperature).to(device))
+        self.register_buffer(
+            "negatives_mask",
+            (~torch.eye(batch_size * 2, batch_size * 2, dtype=bool).to(device)).float(),
+        )
+        self.device = device
+
+    def forward(self, z1, z2):
+        B, C = z1.shape
+        assert B == self.batch_size
+
+        # According to Claude normalizing before cosine_similarity is more efficient
+        z1 = F.normalize(z1, dim=1)
+        z2 = F.normalize(z2, dim=1)
+
+        # This differs from the pseudocode in the paper, they intersperse the
+        # two tensors so that positive pairs are close to each other.
+        z = torch.cat([z1, z2], dim=0)  # 2B, C
+
+        S = F.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2)  # 2B, 2B
+
+        positives_upper = torch.diag(S, diagonal=B)  # B
+        positives_lower = torch.diag(S, diagonal=-B)  # B
+        positives = torch.cat([positives_upper, positives_lower], dim=0)  # 2B
+
+        # Compute per-row denominator
+        den = torch.sum(
+            self.negatives_mask * torch.exp(S / self.temperature), dim=1
+        )  # 2B
+
+        loss = -torch.mean(positives / self.temperature - torch.log(den))
+
+        return loss
+
+
+class SimCLR(nn.Module):
+    def __init__(self, temperature=0.5, device="cuda"):
+        super().__init__()
+
+        self.temperature = 0.5
+        self.device = device
+
+        # ResNet with modification for smaller images (CIFAR-10)
+        resnet = torchvision.models.resnet50()
+        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        resnet.maxpool = nn.Identity()
+        resnet.fc = nn.Identity()
+
+        self.base_encoder = resnet
+
+        linear1 = torch.nn.Linear(2048, 2048, bias=False)
+        relu = torch.nn.ReLU()
+        linear2 = torch.nn.Linear(2048, 2048, bias=False)
+
+        self.projection_head = torch.nn.Sequential(linear1, relu, linear2)
+
+        self.loss = NTXentLoss(temperature=self.temperature, device=self.device)
 
     def forward(self, x1, x2):
         B, C, H, W = x1.shape
 
-        # TODO:
-        return x1, x2
+        h1 = self.base_encoder(x1)
+        z1 = self.projection_head(h1)
+
+        h2 = self.base_encoder(x2)
+        z2 = self.projection_head(h2)
+
+        loss = self.loss(z1, z2)
+
+        return loss
 
 
 #: Datasets
@@ -68,12 +135,12 @@ class SimCLRTrainDataset(torch.utils.data.Dataset):
         )
         self.transform = transforms.Compose(
             [
-                transforms.ToTensor(),
                 transforms.RandomResizedCrop(
                     (H, W), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333)
                 ),
                 transforms.RandomHorizontalFlip(p=0.5),
                 get_random_color_distortion(0.5),
+                transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
             ]
         )
@@ -132,7 +199,7 @@ if __name__ == "__main__":
 
     dataiter = iter(trainloader)
 
-    model = SimCLR()
+    model = SimCLR(temperature=0.5, device=device)
 
     for i in range(3):
         x1, x2, labels = next(dataiter)
