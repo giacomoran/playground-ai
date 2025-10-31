@@ -24,3 +24,5 @@ On CIFAR-10 they make the following modifications:
 
 - In ResNet-50, they replace the first 7x7 Conv of stride 2 with 3x3 Conv of stride 1, and also remove the first max pooling operation
 - Remove Gaussian Blur from the data augmentations, use 0.5 as color distortion strenght
+
+I've also replaced batch norm in ResNet with group normalization (with 32 group). The reason is the same as for why the paper uses global batch norm: in small batches, positive pairs influence the batch statistics (by e.g. pulling the batch mean towards their regions), this might lower the loss without the network learning invariance. We train on a single device, but use gradient accumulation with microbatches, therefore we are still dealing with small batch sizes.
