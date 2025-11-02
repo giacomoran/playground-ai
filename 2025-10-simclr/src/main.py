@@ -1,12 +1,12 @@
-import torch
-import torchvision
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms as transforms
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-import time
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
+import torchvision.transforms as transforms
 
 #: Utils
 
@@ -164,7 +164,6 @@ class SimCLRTestDataset(torch.utils.data.Dataset):
 
 
 if __name__ == "__main__":
-
     print("START")
 
     batch_size = 512
