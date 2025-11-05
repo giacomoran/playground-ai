@@ -178,12 +178,13 @@ class SimCLRTestDataset(torch.utils.data.Dataset):
 
 
 def evaluate_linear_classifier(
-    model, trainloader, testloader, device, num_classes=10, epochs=2
+    model, trainloader, testloader, device, num_classes=10, epochs=10
 ):
     """
     Train a linear classifier on top of the base_encoder features and evaluate.
     Returns top-1 test accuracy and test loss.
     """
+    print(f"[Linear Classifier] Starting evaluation (epochs={epochs}, num_classes={num_classes})")
     model.eval()
 
     # Get feature dimension from first batch
@@ -195,14 +196,18 @@ def evaluate_linear_classifier(
             feature_dim = features.shape[1]
             break
 
+    print(f"[Linear Classifier] Feature dimension: {feature_dim}")
+
     # Create linear classifier
     classifier = nn.Linear(feature_dim, num_classes).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(classifier.parameters(), lr=1e-3, weight_decay=1e-6)
 
     # Train classifier using batches from trainloader
+    print(f"[Linear Classifier] Training classifier for {epochs} epochs...")
     classifier.train()
-    for _ in range(epochs):
+    for epoch_idx in range(epochs):
+        epoch_losses = []
         for batch in trainloader:
             x1, x2, labels = batch
             x1 = x1.to(device)
@@ -216,8 +221,13 @@ def evaluate_linear_classifier(
             loss = criterion(logits, labels)
             loss.backward()
             optimizer.step()
+            epoch_losses.append(loss.item())
+
+        avg_loss = np.mean(epoch_losses)
+        print(f"[Linear Classifier] Training epoch {epoch_idx + 1}/{epochs}, avg_loss={avg_loss:.4f}")
 
     # Evaluate on test set using testloader
+    print("[Linear Classifier] Evaluating on test set...")
     classifier.eval()
     test_losses = []
     correct = 0
@@ -239,6 +249,8 @@ def evaluate_linear_classifier(
 
     test_loss = np.mean(test_losses)
     test_accuracy = correct / total
+
+    print(f"[Linear Classifier] Evaluation complete - Test accuracy: {test_accuracy:.4f} ({correct}/{total}), Test loss: {test_loss:.4f}")
 
     return test_accuracy, test_loss
 
@@ -310,6 +322,19 @@ if __name__ == "__main__":
 
     wandb.watch(model, log="all", log_freq=100)
 
+    # Baseline evaluation on untrained network
+    print("Running baseline evaluation on untrained network...")
+    model.eval()
+    baseline_accuracy, baseline_loss = evaluate_linear_classifier(
+        model, trainloader, testloader, device, num_classes=10, epochs=10
+    )
+    wandb.log({
+        "linear_test_accuracy": baseline_accuracy,
+        "linear_test_loss": baseline_loss,
+        "epoch": -1,  # Use -1 to indicate baseline
+    }, step=-1)
+    print(f"Baseline - Test accuracy: {baseline_accuracy:.4f}, Test loss: {baseline_loss:.4f}")
+
     print("Running...")
 
     optimizer = torch.optim.AdamW(
@@ -361,10 +386,10 @@ if __name__ == "__main__":
             "epoch": epoch,
         }
 
-        # Evaluate linear classifier periodically
-        if epoch % 2 == 0 or epoch == wandb.config.num_epochs - 1:
+        # Evaluate linear classifier periodically (after every 10 epochs, starting from epoch 10)
+        if (epoch > 0 and epoch % 10 == 0) or (epoch == wandb.config.num_epochs - 1 and epoch % 10 != 0):
             test_accuracy, test_loss = evaluate_linear_classifier(
-                model, trainloader, testloader, device, num_classes=10, epochs=100
+                model, trainloader, testloader, device, num_classes=10, epochs=10
             )
             log_dict["linear_test_accuracy"] = test_accuracy
             log_dict["linear_test_loss"] = test_loss
