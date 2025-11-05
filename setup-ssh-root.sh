@@ -12,6 +12,11 @@ set -euo pipefail
 #     User giacomo
 #     ForwardAgent yes
 
+echo "=== Installing sudo (required for subsequent steps) ==="
+apt-get update
+apt-get install -y sudo
+
+echo ""
 echo "=== Creating giacomo user ==="
 if id "giacomo" &>/dev/null; then
     echo "User giacomo already exists, skipping creation"
@@ -51,11 +56,9 @@ fi
 
 echo ""
 echo "=== Installing common tools ==="
-apt-get update
 
 # Install all packages via apt-get in one command
 apt-get install -y \
-    sudo \
     git \
     htop \
     curl \
