@@ -8,8 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+# It's inconvenient to commit uv.lock when experimenting across environments
+# (local laptop and remote GPU)
+uv.lock
 
 # Others
 wandb/
 data/
 out/
+
