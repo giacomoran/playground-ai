@@ -7,6 +7,10 @@ set fish_greeting
 set -gx LANG en_US.UTF-8
 set -gx GITHUB_USER giacomorandazzo
 
+# Add common binary directories to PATH (for uv, cargo, etc.)
+fish_add_path --global ~/.cargo/bin
+fish_add_path --global ~/.local/bin
+
 # Use `less` as default pager
 # See below for configuration options
 set -gx PAGER less

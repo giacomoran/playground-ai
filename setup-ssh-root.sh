@@ -77,27 +77,6 @@ apt-get install -y \
     gnupg \
     || true
 
-# Install uv (Python package manager used in this project)
-if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    # Make uv available system-wide (check multiple possible locations)
-    UV_FOUND=false
-    for location in "/root/.local/bin/uv" "/root/.cargo/bin/uv"; do
-        if [ -f "$location" ]; then
-            ln -sf "$location" /usr/local/bin/uv || true
-            echo "Installed uv (found at $location)"
-            UV_FOUND=true
-            break
-        fi
-    done
-    if [ "$UV_FOUND" = false ]; then
-        echo "Warning: uv installed but binary not found in expected locations"
-        echo "You may need to add uv to PATH manually"
-    fi
-else
-    echo "uv already installed"
-fi
-
 # Configure git for giacomo user
 sudo -u giacomo sh -c 'git config --global user.name "Giacomo Randazzo" && git config --global user.email "giacomoran@gmail.com"'
 echo "Configured git for giacomo user"

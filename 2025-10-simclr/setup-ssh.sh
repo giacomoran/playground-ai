@@ -6,7 +6,6 @@ set -euo pipefail
 #
 # Assumptions:
 # - Python, PyTorch, and CUDA are pre-installed (for ML workloads)
-# - uv is installed and available in PATH (installed by setup-ssh-root.sh)
 # - Working directory is /workspace, which is retained when the VM is paused
 # - SSH keys are configured (via ForwardAgent or local setup) for git clone
 #
@@ -39,6 +38,17 @@ if [ -d "$REPO_DIR" ]; then
 else
     git clone "$REPO_URL" "$REPO_DIR"
     echo "Repository cloned to $REPO_DIR"
+fi
+
+echo ""
+echo "=== Installing uv ==="
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Add uv to PATH for current session
+    export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+    echo "Installed uv"
+else
+    echo "uv already installed"
 fi
 
 echo ""
