@@ -29,66 +29,13 @@ if command -v docker &> /dev/null; then
 fi
 
 echo ""
-echo "=== Hardening SSH configuration ==="
-SSH_CONFIG="/etc/ssh/sshd_config"
-
-# Backup original config
-BACKUP_FILE="${SSH_CONFIG}.backup.$(date +%Y%m%d_%H%M%S)"
-if cp "$SSH_CONFIG" "$BACKUP_FILE"; then
-    echo "Backed up SSH config to $BACKUP_FILE"
-else
-    echo "Warning: Failed to backup SSH config, proceeding anyway"
-fi
-
-# Apply SSH hardening (only if not already present)
-if ! grep -q "# Hardening configuration added by setup-ssh-root.sh" "$SSH_CONFIG" 2>/dev/null; then
-    cat >> "$SSH_CONFIG" <<EOF
-
-# Hardening configuration added by setup-ssh-root.sh
-PermitRootLogin no
-PasswordAuthentication no
-EOF
-    echo "Applied SSH hardening configuration"
-else
-    echo "SSH hardening configuration already present, skipping"
-fi
-
-# Restart SSH service
-if systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null; then
-    echo "SSH service restarted"
-else
-    echo "Warning: Failed to restart SSH service, manual restart may be required"
-fi
-
-echo ""
 echo "=== Installing common tools ==="
 apt-get update
 
-# Install uv (Python package manager used in this project)
-if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    # Make uv available system-wide
-    ln -sf /root/.cargo/bin/uv /usr/local/bin/uv || true
-    echo "Installed uv"
-else
-    echo "uv already installed"
-fi
-
-# Install git if not present
-if ! command -v git &> /dev/null; then
-    apt-get install -y git
-    echo "Installed git"
-else
-    echo "git already installed"
-fi
-
-# Configure git for giacomo user
-sudo -u giacomo git config --global user.name "Giacomo Randazzo"
-sudo -u giacomo git config --global user.email "giacomoran@gmail.com"
-echo "Configured git for giacomo user"
-
-# Install tools available via apt-get
+# Install all packages via apt-get in one command
 apt-get install -y \
+    sudo \
+    git \
     htop \
     curl \
     wget \
@@ -105,6 +52,31 @@ apt-get install -y \
     tree \
     gnupg \
     || true
+
+# Install uv (Python package manager used in this project)
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Make uv available system-wide (check multiple possible locations)
+    UV_FOUND=false
+    for location in "/root/.local/bin/uv" "/root/.cargo/bin/uv"; do
+        if [ -f "$location" ]; then
+            ln -sf "$location" /usr/local/bin/uv || true
+            echo "Installed uv (found at $location)"
+            UV_FOUND=true
+            break
+        fi
+    done
+    if [ "$UV_FOUND" = false ]; then
+        echo "Warning: uv installed but binary not found in expected locations"
+        echo "You may need to add uv to PATH manually"
+    fi
+else
+    echo "uv already installed"
+fi
+
+# Configure git for giacomo user
+sudo -u giacomo sh -c 'git config --global user.name "Giacomo Randazzo" && git config --global user.email "giacomoran@gmail.com"'
+echo "Configured git for giacomo user"
 
 # On Ubuntu, bat is installed as batcat, create symlink so 'bat' works
 if command -v batcat &> /dev/null && ! command -v bat &> /dev/null; then
@@ -171,6 +143,38 @@ if command -v fish &> /dev/null; then
     else
         echo "Warning: Failed to download fish config, you may need to do this manually"
     fi
+fi
+
+echo ""
+echo "=== Hardening SSH configuration ==="
+SSH_CONFIG="/etc/ssh/sshd_config"
+
+# Backup original config
+BACKUP_FILE="${SSH_CONFIG}.backup.$(date +%Y%m%d_%H%M%S)"
+if cp "$SSH_CONFIG" "$BACKUP_FILE"; then
+    echo "Backed up SSH config to $BACKUP_FILE"
+else
+    echo "Warning: Failed to backup SSH config, proceeding anyway"
+fi
+
+# Apply SSH hardening (only if not already present)
+if ! grep -q "# Hardening configuration added by setup-ssh-root.sh" "$SSH_CONFIG" 2>/dev/null; then
+    cat >> "$SSH_CONFIG" <<EOF
+
+# Hardening configuration added by setup-ssh-root.sh
+PermitRootLogin no
+PasswordAuthentication no
+EOF
+    echo "Applied SSH hardening configuration"
+else
+    echo "SSH hardening configuration already present, skipping"
+fi
+
+# Restart SSH service
+if systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null; then
+    echo "SSH service restarted"
+else
+    echo "Warning: Failed to restart SSH service, manual restart may be required"
 fi
 
 echo ""
