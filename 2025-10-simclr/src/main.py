@@ -7,6 +7,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
+import wandb
+
+#:
+
+config = dict(
+    batch_size = 256,
+    num_epochs = 100,
+    temperature = 0.5,
+    learning_rate=1e-4,
+    weight_decay=1e-6,
+    dataset="CIFAR-10",
+    base_encoder="ResNet50",
+    optimizer="AdamW"
+)
 
 #: Utils
 
@@ -166,8 +180,6 @@ class SimCLRTestDataset(torch.utils.data.Dataset):
 if __name__ == "__main__":
     print("START")
 
-    batch_size = 256
-
     C = 3
     H = 32
     W = 32
@@ -187,35 +199,57 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    wandb.init(
+        project="2025-10-simclr",
+        config=config
+    )
+
+    # Set random seeds for reproducibility
     torch.manual_seed(0)
     np.random.seed(0)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(0)
         torch.cuda.manual_seed_all(0)
 
+    wandb.config.update({"device": str(device)})
+    if torch.cuda.is_available():
+        wandb.config.update({"cuda_device": torch.cuda.get_device_name(0)})
+
     trainset = SimCLRTrainDataset()
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=8
+        trainset,
+        batch_size=wandb.config.batch_size,
+        shuffle=True,
+        num_workers=8,
+        drop_last=True,
     )
 
     testset = SimCLRTestDataset()
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False, num_workers=8
+        testset,
+        batch_size=wandb.config.batch_size,
+        shuffle=False,
+        num_workers=8,
+        drop_last=True,
     )
-
-    dataiter = iter(trainloader)
 
     print("Creating model")
 
-    model = SimCLR(batch_size=batch_size, temperature=0.5, device=device)
+    model = SimCLR(
+        batch_size=wandb.config.batch_size,
+        temperature=wandb.config.temperature,
+        device=device,
+    )
     model = model.to(device)
+
+    wandb.watch(model, log="all", log_freq=100)
 
     print("Running...")
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=1e-4,
-        weight_decay=1e-6,
+        lr=wandb.config.learning_rate,
+        weight_decay=wandb.config.weight_decay,
     )
 
     # Plot augmented pairs of images for the batch
@@ -223,18 +257,12 @@ if __name__ == "__main__":
     # grid = torch.cat([x1, x2], dim=0)
     # imshow(torchvision.utils.make_grid(grid, nrow=batch_size))
 
-    # Store 2 batches for overfitting
-    print("Extracting 2 batches for overfitting...")
-    overfit_batches = []
-    for ix, batch in enumerate(trainloader):
-        if ix >= 2:
-            break
-        overfit_batches.append(batch)
+    model.train()
+    for epoch in range(wandb.config.num_epochs):
+        epoch_losses = []
+        epoch_batch_times = []
 
-    print(f"Overfitting on {len(overfit_batches)} batches")
-
-    for epoch in range(100):
-        for ix, batch in enumerate(overfit_batches):
+        for ix, batch in enumerate(trainloader):
             batch_start_time = time.time()
 
             x1, x2, labels = batch
@@ -248,8 +276,30 @@ if __name__ == "__main__":
             optimizer.step()
 
             batch_time = time.time() - batch_start_time
+            epoch_losses.append(loss.item())
+            epoch_batch_times.append(batch_time)
+
             print(
-                f"Epoch={epoch} Batch={ix}/{len(overfit_batches)} Loss={loss.item():.4f} Time={batch_time:.3f}s"
+                f"Epoch={epoch} Batch={ix}/{len(trainloader)} Loss={loss.item():.4f} Time={batch_time:.3f}s"
             )
+
+        # Log epoch-level metrics (standard practice for ML experiments)
+        epoch_avg_loss = np.mean(epoch_losses)
+        epoch_avg_time = np.mean(epoch_batch_times)
+        wandb.log(
+            {
+                "loss": epoch_avg_loss,  # Primary metric - epoch average loss
+                "batch_time": epoch_avg_time,
+                "samples_per_sec": wandb.config.batch_size / epoch_avg_time,
+                "learning_rate": optimizer.param_groups[0]["lr"],
+                "epoch": epoch,
+            },
+            step=epoch,
+        )
+
+    model.eval()
+
+    # Finalize wandb run
+    wandb.finish()
 
     print("END")
