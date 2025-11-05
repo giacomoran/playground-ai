@@ -28,6 +28,27 @@ if command -v docker &> /dev/null; then
     echo "Added giacomo to docker group"
 fi
 
+# Copy SSH authorized_keys from root/ubuntu to giacomo so they can connect
+# This ensures giacomo can authenticate even after password auth is disabled
+SOURCE_KEY=""
+if [ -f /root/.ssh/authorized_keys ]; then
+    SOURCE_KEY="/root/.ssh/authorized_keys"
+elif [ -f /home/ubuntu/.ssh/authorized_keys ]; then
+    SOURCE_KEY="/home/ubuntu/.ssh/authorized_keys"
+fi
+
+if [ -n "$SOURCE_KEY" ]; then
+    sudo -u giacomo mkdir -p /home/giacomo/.ssh
+    cp "$SOURCE_KEY" /home/giacomo/.ssh/authorized_keys
+    chown giacomo:giacomo /home/giacomo/.ssh/authorized_keys
+    chmod 700 /home/giacomo/.ssh
+    chmod 600 /home/giacomo/.ssh/authorized_keys
+    echo "Copied SSH authorized_keys to giacomo user (from $(dirname $SOURCE_KEY))"
+else
+    echo "Warning: No authorized_keys found in /root/.ssh or /home/ubuntu/.ssh"
+    echo "You may need to manually add your public key to /home/giacomo/.ssh/authorized_keys"
+fi
+
 echo ""
 echo "=== Installing common tools ==="
 apt-get update
@@ -92,17 +113,24 @@ if ! command -v starship &> /dev/null; then
     curl -sS https://starship.rs/install.sh | sh
     # Make starship available system-wide (check multiple possible locations)
     STARSHIP_FOUND=false
-    for location in "/root/.local/bin/starship" "/root/.cargo/bin/starship"; do
+    for location in "/usr/local/bin/starship" "/root/.local/bin/starship" "/root/.cargo/bin/starship"; do
         if [ -f "$location" ]; then
-            ln -sf "$location" /usr/local/bin/starship || true
+            # If not already in /usr/local/bin, create symlink
+            if [ "$location" != "/usr/local/bin/starship" ]; then
+                ln -sf "$location" /usr/local/bin/starship || true
+            fi
             echo "Installed starship (found at $location)"
             STARSHIP_FOUND=true
             break
         fi
     done
-    if [ "$STARSHIP_FOUND" = false ]; then
+    # Verify starship is accessible
+    if command -v starship &> /dev/null; then
+        echo "✓ starship is now available in PATH"
+    elif [ "$STARSHIP_FOUND" = false ]; then
         echo "Warning: starship installed but binary not found in expected locations"
         echo "You may need to add starship to PATH manually"
+        echo "Try running: which starship"
     fi
 else
     echo "starship already installed"
@@ -180,20 +208,14 @@ fi
 echo ""
 echo "=== Setup complete ==="
 
-# Get IP address
-IP_ADDRESS=$(hostname -I | awk '{print $1}' || ip addr show | grep -oP 'inet \K[\d.]+' | grep -v '^127\.' | head -1 || echo "<IP_ADDRESS>")
-
-# Get SSH port from config (default is 22)
-SSH_PORT=$(grep -E "^Port " "$SSH_CONFIG" | awk '{print $2}' || echo "22")
-
 echo "Next steps:"
 echo "1. Add this host to your local ~/.ssh/config with:"
 echo "   Host <hostname>"
-echo "     HostName $IP_ADDRESS"
-echo "     Port $SSH_PORT"
+echo "     HostName <IP_ADDRESS>"
+echo "     Port <PORT>"
 echo "     User giacomo"
 echo "     ForwardAgent yes"
 echo ""
-echo "2. Connect as giacomo user: ssh -p $SSH_PORT giacomo@$IP_ADDRESS"
+echo "2. Connect as giacomo user: ssh -p <PORT> giacomo@<IP_ADDRESS>"
 echo "   Or: ssh <hostname>"
 echo "3. Run the project-specific setup script"
