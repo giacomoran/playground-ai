@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "matplotlib>=3.10.7",
     "numpy>=2.3.4",
-    "wandb>=0.22.3",
+    "wandb>=0.22.3"
 ]
 
 [project.optional-dependencies]

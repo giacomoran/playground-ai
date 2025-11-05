@@ -166,7 +166,7 @@ class SimCLRTestDataset(torch.utils.data.Dataset):
 if __name__ == "__main__":
     print("START")
 
-    batch_size = 512
+    batch_size = 256
 
     C = 3
     H = 32
@@ -214,7 +214,7 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=1e-3,  # Increased learning rate
+        lr=1e-4,
         weight_decay=1e-6,
     )
 
