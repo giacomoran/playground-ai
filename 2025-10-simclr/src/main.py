@@ -12,14 +12,14 @@ import wandb
 #:
 
 config = dict(
-    batch_size = 256,
-    num_epochs = 100,
-    temperature = 0.5,
+    batch_size=256,
+    num_epochs=100,
+    temperature=0.5,
     learning_rate=1e-4,
     weight_decay=1e-6,
     dataset="CIFAR-10",
     base_encoder="ResNet50",
-    optimizer="AdamW"
+    optimizer="AdamW",
 )
 
 #: Utils
@@ -174,6 +174,75 @@ class SimCLRTestDataset(torch.utils.data.Dataset):
         return len(self.base_dataset)
 
 
+#: Evaluation
+
+
+def evaluate_linear_classifier(
+    model, trainloader, testloader, device, num_classes=10, epochs=2
+):
+    """
+    Train a linear classifier on top of the base_encoder features and evaluate.
+    Returns top-1 test accuracy and test loss.
+    """
+    model.eval()
+
+    # Get feature dimension from first batch
+    with torch.no_grad():
+        for batch in trainloader:
+            x1, x2, labels = batch
+            x1 = x1.to(device)
+            features = model.base_encoder(x1)
+            feature_dim = features.shape[1]
+            break
+
+    # Create linear classifier
+    classifier = nn.Linear(feature_dim, num_classes).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(classifier.parameters(), lr=1e-3, weight_decay=1e-6)
+
+    # Train classifier using batches from trainloader
+    classifier.train()
+    for _ in range(epochs):
+        for batch in trainloader:
+            x1, x2, labels = batch
+            x1 = x1.to(device)
+            labels = labels.to(device)
+
+            with torch.no_grad():
+                features = model.base_encoder(x1)
+
+            optimizer.zero_grad()
+            logits = classifier(features)
+            loss = criterion(logits, labels)
+            loss.backward()
+            optimizer.step()
+
+    # Evaluate on test set using testloader
+    classifier.eval()
+    test_losses = []
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for batch in testloader:
+            x, labels = batch
+            x = x.to(device)
+            labels = labels.to(device)
+
+            features = model.base_encoder(x)
+            logits = classifier(features)
+            loss = criterion(logits, labels)
+            test_losses.append(loss.item())
+
+            predictions = torch.argmax(logits, dim=1)
+            correct += (predictions == labels).sum().item()
+            total += labels.size(0)
+
+    test_loss = np.mean(test_losses)
+    test_accuracy = correct / total
+
+    return test_accuracy, test_loss
+
+
 #: Main
 
 
@@ -199,10 +268,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    wandb.init(
-        project="2025-10-simclr",
-        config=config
-    )
+    wandb.init(project="2025-10-simclr", config=config)
 
     # Set random seeds for reproducibility
     torch.manual_seed(0)
@@ -286,16 +352,24 @@ if __name__ == "__main__":
         # Log epoch-level metrics (standard practice for ML experiments)
         epoch_avg_loss = np.mean(epoch_losses)
         epoch_avg_time = np.mean(epoch_batch_times)
-        wandb.log(
-            {
-                "loss": epoch_avg_loss,  # Primary metric - epoch average loss
-                "batch_time": epoch_avg_time,
-                "samples_per_sec": wandb.config.batch_size / epoch_avg_time,
-                "learning_rate": optimizer.param_groups[0]["lr"],
-                "epoch": epoch,
-            },
-            step=epoch,
-        )
+
+        log_dict = {
+            "loss": epoch_avg_loss,
+            "batch_time": epoch_avg_time,
+            "samples_per_sec": wandb.config.batch_size / epoch_avg_time,
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "epoch": epoch,
+        }
+
+        # Evaluate linear classifier periodically
+        if epoch % 2 == 0 or epoch == wandb.config.num_epochs - 1:
+            test_accuracy, test_loss = evaluate_linear_classifier(
+                model, trainloader, testloader, device, num_classes=10, epochs=100
+            )
+            log_dict["linear_test_accuracy"] = test_accuracy
+            log_dict["linear_test_loss"] = test_loss
+
+        wandb.log(log_dict, step=epoch)
 
     model.eval()
 
