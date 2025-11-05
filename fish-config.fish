@@ -7,6 +7,23 @@ set fish_greeting
 set -gx LANG en_US.UTF-8
 set -gx GITHUB_USER giacomorandazzo
 
+# Fix TERM environment variable for terminals not recognized on remote servers
+# When using ghostty or other modern terminals via SSH, the TERM might not be recognized
+# This checks if the terminal type is supported and falls back to xterm-256color if not
+if test -n "$TERM"
+    # Explicitly handle common unrecognized terminal types
+    if test "$TERM" = "xterm-ghostty"
+        set -gx TERM xterm-256color
+    else if type -q infocmp
+        # Check if the terminal type is in the terminfo database
+        # If infocmp fails, the terminal type is not recognized
+        if not infocmp "$TERM" >/dev/null 2>&1
+            # Fall back to xterm-256color (widely supported)
+            set -gx TERM xterm-256color
+        end
+    end
+end
+
 # Add common binary directories to PATH (for uv, cargo, etc.)
 fish_add_path --global ~/.cargo/bin
 fish_add_path --global ~/.local/bin
